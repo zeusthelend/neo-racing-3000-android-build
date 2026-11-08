@@ -1,4 +1,4 @@
-name: Build Neo Racing APK
+name: Build Neo Racing APK 1.2.0
 on:
   workflow_dispatch:
   push:
@@ -16,16 +16,16 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Extract native Android project
-        run: unzip -q neo-racing-android.zip -d project
-      - name: Build signed debug APK
+        run: unzip -q NeoRacing3000-Android-Professional-1.2.0.zip -d project
+      - name: Build Android APK
         working-directory: project/NeoRacing3000-AndroidGamepad
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace assembleDebug
-      - name: Publish APK to private repository release
+      - name: Publish APK as a new release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: neo-racing-1.1.6-${{ github.run_number }}
-          name: Neo Racing 3000 Android 1.1.6 build ${{ github.run_number }}
+          tag_name: neo-racing-1.2.0-${{ github.run_number }}
+          name: Neo Racing 3000 Android 1.2.0 build ${{ github.run_number }}
           files: project/NeoRacing3000-AndroidGamepad/app/build/outputs/apk/debug/*.apk
           fail_on_unmatched_files: true
