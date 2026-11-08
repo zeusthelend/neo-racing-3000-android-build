@@ -1,0 +1,31 @@
+name: Build Neo Racing APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Extract native Android project
+        run: unzip -q neo-racing-android.zip -d project
+      - name: Build signed debug APK
+        working-directory: project/NeoRacing3000-AndroidGamepad
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeoRacing3000-Android-1.1.6-debug
+          path: project/NeoRacing3000-AndroidGamepad/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
