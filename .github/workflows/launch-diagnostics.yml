@@ -12,6 +12,61 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: fix/diagnose-build-7-startup
+      - name: Extract Android source from repository archive
+        run: |
+          mkdir -p source-inspection
+          unzip -q NeoRacing3000-Android-Professional-1.2.0.zip -d source-inspection/project
+          find source-inspection/project -type f \\( -name 'MainActivity.java' -o -name 'MainActivity.kt' -o -name 'AndroidManifest.xml' -o -name 'build.gradle' -o -name 'build.gradle.kts' \\) -print | tee source-inspection/source-index.txt
+          if ! grep -Eq 'MainActivity\\.(java|kt)        run: |
+          mkdir -p test-output
+          APK_ASSET_API="https://api.github.com/repos/zeusthelend/neo-racing-3000-android-build/releases/assets/726172619"
+          EXPECTED_SHA256="d77812ce1ee52c3d5f0b5ad37f2af47c1e33810362bfd25bec7507c7620c9fbb"
+          echo "Expected SHA256: $EXPECTED_SHA256" | tee test-output/apk-checksum.txt
+          # Download the release asset through the GitHub API, not the browser CDN URL.
+          if ! curl --fail --location --show-error --retry 8 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 600 \
+            -H "Accept: application/octet-stream" -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$APK_ASSET_API" --output test-output/build-7.apk 2>&1 | tee test-output/download.log; then
+            echo "RESULT=APK_DOWNLOAD_FAILED" | tee -a test-output/summary.txt
+            exit 1
+          fi
+          if [ ! -s test-output/build-7.apk ]; then
+            echo "RESULT=APK_DOWNLOAD_EMPTY" | tee -a test-output/summary.txt
+            exit 1
+          fi
+          ACTUAL_SHA256="$(sha256sum test-output/build-7.apk | awk '{print $1}')"
+          echo "Actual SHA256: $ACTUAL_SHA256" | tee -a test-output/apk-checksum.txt
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "RESULT=APK_CHECKSUM_MISMATCH" | tee -a test-output/summary.txt
+            exit 1
+          fi
+          echo "APK_CHECKSUM_VERIFIED=true" | tee -a test-output/summary.txt
+      - name: Boot emulator and capture startup evidence
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          emulator-boot-timeout: 900
+          script: bash .github/scripts/diagnose-build-7.sh
+      - name: Upload all startup diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neo-racing-build-7-startup-diagnostics
+          path: test-output/
+          if-no-files-found: warn
+          retention-days: 14
+ source-inspection/source-index.txt; then
+            echo "No MainActivity source found in the project archive" | tee source-inspection/EXTRACTION-STATUS.txt
+          fi
+      - name: Upload extracted Android source for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: neo-racing-android-source-inspection
+          path: source-inspection/
+          if-no-files-found: error
+          retention-days: 14
       - name: Download the exact published build 7
         run: |
           mkdir -p test-output
