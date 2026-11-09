@@ -56,14 +56,16 @@ jobs:
             exit 1
           fi
           echo "APK_CHECKSUM_VERIFIED=true" | tee -a test-output/summary.txt
-      - name: Boot emulator and capture startup evidence
+      - name: Boot stable Google APIs emulator and capture startup evidence
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: 35
+          target: google_apis
           arch: x86_64
           profile: pixel_2
-          disable-animations: false
+          disable-animations: true
           emulator-boot-timeout: 900
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -memory 2048
           script: bash .github/scripts/diagnose-build-7.sh
       - name: Upload all startup diagnostics
         if: always()
