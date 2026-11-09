@@ -1,0 +1,128 @@
+name: Neo Racing 3000 launch diagnostics
+on:
+  push:
+    branches: ["diagnose/**"]
+  workflow_dispatch:
+jobs:
+  build-and-emulator-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build source project without publishing a release
+        run: |
+          unzip -q NeoRacing3000-Android-Professional-1.2.0.zip -d project
+          cd project/NeoRacing3000-AndroidGamepad
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug
+          mkdir -p "$GITHUB_WORKSPACE/test-output"
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/test-output/source-debug.apk"
+      - name: Download exact published build 1.2.0-6
+        run: curl -fL https://github.com/zeusthelend/neo-racing-3000-android-build/releases/download/neo-racing-1.2.0-6/app-debug.apk -o test-output/published-1.2.0-6.apk
+      - name: Start Android emulator and test published APK then source APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            set -eu
+            mkdir -p test-output
+            adb wait-for-device
+            adb shell input keyevent 82 || true
+            adb shell wm size 1280x720
+            adb shell wm density 240
+            test_variant() {
+              label="$1"; apk="$2"
+              echo "===== Testing $label: $apk =====" | tee -a test-output/summary.txt
+              adb logcat -c
+              adb install -r "$apk" | tee -a test-output/summary.txt
+              adb shell am force-stop com.webapp.neoracing3000 || true
+              adb shell monkey -p com.webapp.neoracing3000 -c android.intent.category.LAUNCHER 1 | tee -a test-output/summary.txt
+              sleep 25
+              adb shell pidof com.webapp.neoracing3000 | tee -a test-output/summary.txt
+              adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+              adb pull /sdcard/window.xml "test-output/${label}-menu.xml" >/dev/null 2>&1 || true
+              adb shell screencap -p /sdcard/screen.png
+              adb pull /sdcard/screen.png "test-output/${label}-menu.png" >/dev/null
+              if ! grep -q 'INICIAR CORRIDA' "test-output/${label}-menu.xml"; then
+                echo "MENU_BUTTON_NOT_FOUND: INICIAR CORRIDA" | tee -a test-output/summary.txt
+                adb logcat -d -v threadtime > "test-output/${label}-logcat.txt"
+                return 1
+              fi
+              echo 'MENU_LOADED' | tee -a test-output/summary.txt
+              adb shell input keyevent 3
+              adb shell am force-stop com.webapp.neoracing3000
+              adb shell monkey -p com.webapp.neoracing3000 -c android.intent.category.LAUNCHER 1 >/dev/null
+              sleep 20
+              adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+              adb pull /sdcard/window.xml "test-output/${label}-garage-menu.xml" >/dev/null 2>&1 || true
+              python3 - "$label" <<'PY'
+            import sys,xml.etree.ElementTree as ET,subprocess,time
+            label=sys.argv[1]
+            p=f'test-output/{label}-garage-menu.xml'
+            root=ET.parse(p).getroot()
+            def tap(text):
+                for node in root.iter('node'):
+                    if text in node.attrib.get('text','') or text in node.attrib.get('content-desc',''):
+                        import re
+                        b=node.attrib.get('bounds','')
+                        nums=list(map(int,re.findall(r'\d+',b)))
+                        if len(nums)==4:
+                            subprocess.run(['adb','shell','input','tap',str((nums[0]+nums[2])//2),str((nums[1]+nums[3])//2)],check=True)
+                            return True
+                return False
+            if not tap('GARAGEM'):
+                print('GARAGE_BUTTON_NOT_ACCESSIBLE');sys.exit(2)
+            time.sleep(5)
+            subprocess.run(['adb','shell','uiautomator','dump','/sdcard/garage.xml'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            subprocess.run(['adb','pull','/sdcard/garage.xml',f'test-output/{label}-garage.xml'],stdout=subprocess.DEVNULL,check=True)
+            root=ET.parse(f'test-output/{label}-garage.xml').getroot()
+            if not any('CONFIRMAR CARRO' in n.attrib.get('text','') for n in root.iter('node')):
+                print('GARAGE_NOT_LOADED');sys.exit(3)
+            print('GARAGE_LOADED')
+            PY
+              adb shell input keyevent 4 || true
+              sleep 2
+              adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+              adb pull /sdcard/window.xml "test-output/${label}-race-menu.xml" >/dev/null 2>&1 || true
+              python3 - "$label" <<'PY'
+            import sys,xml.etree.ElementTree as ET,subprocess,re
+            label=sys.argv[1];root=ET.parse(f'test-output/{label}-race-menu.xml').getroot()
+            for node in root.iter('node'):
+                if 'INICIAR CORRIDA' in node.attrib.get('text',''):
+                    nums=list(map(int,re.findall(r'\d+',node.attrib.get('bounds',''))))
+                    if len(nums)==4:
+                        subprocess.run(['adb','shell','input','tap',str((nums[0]+nums[2])//2),str((nums[1]+nums[3])//2)],check=True);break
+            else:
+                print('RACE_START_BUTTON_NOT_FOUND');sys.exit(4)
+            PY
+              sleep 20
+              adb shell pidof com.webapp.neoracing3000 | tee -a test-output/summary.txt
+              adb shell screencap -p /sdcard/screen.png
+              adb pull /sdcard/screen.png "test-output/${label}-race.png" >/dev/null
+              adb shell uiautomator dump /sdcard/race.xml >/dev/null 2>&1 || true
+              adb pull /sdcard/race.xml "test-output/${label}-race.xml" >/dev/null 2>&1 || true
+              adb logcat -d -v threadtime > "test-output/${label}-logcat.txt"
+              if grep -E 'FATAL EXCEPTION|Fatal signal|Process: com.webapp.neoracing3000.*crashed|chromium.*Renderer.*gone' "test-output/${label}-logcat.txt"; then
+                echo 'CRASH_FOUND' | tee -a test-output/summary.txt
+                return 5
+              fi
+              echo 'RACE_TEST_STAYS_RUNNING_NO_FATAL_CRASH' | tee -a test-output/summary.txt
+            }
+            test_variant published test-output/published-1.2.0-6.apk
+            adb uninstall com.webapp.neoracing3000 || true
+            test_variant source test-output/source-debug.apk
+      - name: Upload APKs, screenshots, UI hierarchy and logcat even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neo-racing-launch-diagnostics
+          path: test-output/
+          if-no-files-found: warn
+          retention-days: 14
