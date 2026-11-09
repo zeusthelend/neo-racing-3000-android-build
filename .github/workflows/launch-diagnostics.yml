@@ -11,9 +11,21 @@ jobs:
       - name: Download the exact published build 7
         run: |
           mkdir -p test-output
-          curl -fL "https://github.com/zeusthelend/neo-racing-3000-android-build/releases/download/neo-racing-1.2.0-7/app-debug.apk" -o test-output/build-7.apk
-          echo "Expected SHA256: d77812ce1ee52c3d5f0b5ad37f2af47c1e33810362bfd25bec7507c7620c9fbb" | tee test-output/apk-checksum.txt
-          sha256sum test-output/build-7.apk | tee -a test-output/apk-checksum.txt
+          APK_URL="https://github.com/zeusthelend/neo-racing-3000-android-build/releases/download/neo-racing-1.2.0-7/app-debug.apk"
+          EXPECTED_SHA256="d77812ce1ee52c3d5f0b5ad37f2af47c1e33810362bfd25bec7507c7620c9fbb"
+          echo "Expected SHA256: $EXPECTED_SHA256" | tee test-output/apk-checksum.txt
+          # GitHub release downloads can intermittently return 5xx. Retry before failing.
+          if ! curl --fail --location --show-error --retry 8 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 600 "$APK_URL" --output test-output/build-7.apk 2>&1 | tee test-output/download.log; then
+            echo "RESULT=APK_DOWNLOAD_FAILED" | tee -a test-output/summary.txt
+            exit 1
+          fi
+          ACTUAL_SHA256="$(sha256sum test-output/build-7.apk | awk '{print $1}')"
+          echo "Actual SHA256: $ACTUAL_SHA256" | tee -a test-output/apk-checksum.txt
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "RESULT=APK_CHECKSUM_MISMATCH" | tee -a test-output/summary.txt
+            exit 1
+          fi
+          echo "APK_CHECKSUM_VERIFIED=true" | tee -a test-output/summary.txt
       - name: Boot emulator and capture startup evidence
         uses: reactivecircus/android-emulator-runner@v2
         with:
