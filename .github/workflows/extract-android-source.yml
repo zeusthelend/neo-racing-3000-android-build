@@ -1,0 +1,34 @@
+name: Extract Neo Racing Android source
+on:
+  push:
+    branches: ["fix/diagnose-build-7-startup"]
+    paths:
+      - "NeoRacing3000-Android-Professional-1.2.0.zip"
+      - ".github/workflows/extract-android-source.yml"
+  workflow_dispatch:
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/diagnose-build-7-startup
+      - name: Extract project and locate Android entry point
+        run: |
+          mkdir -p source-inspection
+          unzip -q NeoRacing3000-Android-Professional-1.2.0.zip -d source-inspection/project
+          find source-inspection/project -type f \\( -name 'MainActivity.java' -o -name 'MainActivity.kt' -o -name 'AndroidManifest.xml' -o -name 'build.gradle' -o -name 'build.gradle.kts' \\) -print | tee source-inspection/source-index.txt
+          MAIN="$(find source-inspection/project -type f \\( -name 'MainActivity.java' -o -name 'MainActivity.kt' \\) | head -n 1)"
+          if [ -n "$MAIN" ]; then
+            mkdir -p source-inspection/entry
+            cp "$MAIN" source-inspection/entry/
+            echo "ENTRY_SOURCE_FOUND=$MAIN" > source-inspection/status.txt
+          else
+            echo "ENTRY_SOURCE_NOT_FOUND" > source-inspection/status.txt
+          fi
+          find source-inspection/project -type f -name 'AndroidManifest.xml' -exec cp --parents {} source-inspection/entry/ \\;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neo-racing-source-inspection
+          path: source-inspection/
+          retention-days: 14
