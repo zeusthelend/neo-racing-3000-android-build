@@ -6,7 +6,7 @@ on:
 jobs:
   diagnose-published-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Download the exact published build 7
         run: |
@@ -17,10 +17,11 @@ jobs:
       - name: Boot emulator and capture startup evidence
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 30
           arch: x86_64
           profile: pixel_2
-          disable-animations: true
+          disable-animations: false
+          emulator-boot-timeout: 900
           script: |
             set +e
             mkdir -p test-output
