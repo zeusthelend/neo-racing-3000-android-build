@@ -9,8 +9,28 @@ echo "=== DEVICE ===" > test-output/summary.txt
 adb shell getprop ro.build.version.release >> test-output/summary.txt
 adb shell getprop ro.product.cpu.abi >> test-output/summary.txt
 echo "=== APK INSTALL ===" >> test-output/summary.txt
-adb install -r test-output/build-7.apk > test-output/install.txt 2>&1
-INSTALL_RC=$?
+# Wait until Android's Package Manager is responsive before installing.
+PACKAGE_MANAGER_READY=0
+for attempt in $(seq 1 30); do
+  if adb shell pm list packages >/dev/null 2>&1; then
+    PACKAGE_MANAGER_READY=1
+    break
+  fi
+  sleep 2
+done
+echo "package_manager_ready=$PACKAGE_MANAGER_READY" >> test-output/summary.txt
+
+# Avoid adb's streamed-install path, which previously failed with Broken pipe.
+INSTALL_RC=1
+for attempt in 1 2 3; do
+  echo "Install attempt $attempt" | tee -a test-output/install.txt
+  adb install --no-streaming -r test-output/build-7.apk >> test-output/install.txt 2>&1
+  INSTALL_RC=$?
+  if [ "$INSTALL_RC" -eq 0 ]; then
+    break
+  fi
+  sleep 5
+done
 cat test-output/install.txt
 echo "install_exit_code=$INSTALL_RC" >> test-output/summary.txt
 if [ "$INSTALL_RC" -eq 0 ]; then
